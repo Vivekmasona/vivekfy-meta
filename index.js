@@ -18,12 +18,18 @@ async function processAndStreamAudio(apiUrl, coverUrl, title, artist, res) {
         const coverImagePath = 'cover.jpg';
         fs.writeFileSync(coverImagePath, coverImageResponse.data);
 
+        // Check if the audio stream is correctly fetched
+        if (!audioResponse.data) {
+            console.error('Audio stream is empty or not available.');
+            res.status(500).send('Error: Audio stream is not available.');
+            return;
+        }
+
         // Set up a PassThrough stream for piping the FFmpeg output
         const passThroughStream = new stream.PassThrough();
 
         // Use FFmpeg to process the audio and add metadata
-        ffmpeg()
-            .input(audioResponse.data) // Use the audio stream directly
+        ffmpeg(audioResponse.data) // Use the audio stream directly
             .input(coverImagePath) // Use the cover image file
             .outputOptions([
                 '-metadata', `title=${title}`, // Set the title
