@@ -7,77 +7,59 @@ const stream = require('stream');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Function to download audio, add metadata, and stream it back
+// Function to process audio with metadata and stream it back
 async function processAndStreamAudio(apiUrl, coverUrl, title, artist, res) {
     try {
         // Fetch audio stream from the API endpoint
         const audioResponse = await axios.get(apiUrl, { responseType: 'stream' });
 
-        // Create a temporary file for the audio stream
-        const audioFilePath = 'temp_audio.mp3';
-        const audioFileStream = fs.createWriteStream(audioFilePath);
+        // Download the cover image
+        const coverImageResponse = await axios.get(coverUrl, { responseType: 'arraybuffer' });
+        const coverImagePath = 'cover.jpg';
+        fs.writeFileSync(coverImagePath, coverImageResponse.data);
 
-        // Pipe the audio stream to the temporary file
-        audioResponse.data.pipe(audioFileStream);
+        // Set up a PassThrough stream for piping the FFmpeg output
+        const passThroughStream = new stream.PassThrough();
 
-        // Wait until the audio is fully written
-        audioFileStream.on('finish', async () => {
-            console.log('Audio downloaded successfully!');
+        // Use FFmpeg to process the audio and add metadata
+        ffmpeg()
+            .input(audioResponse.data) // Use the audio stream directly
+            .input(coverImagePath) // Use the cover image file
+            .outputOptions([
+                '-metadata', `title=${title}`, // Set the title
+                '-metadata', `artist=${artist}`, // Set the artist
+                '-map', '0:a', // Map the audio stream
+                '-map', '1', // Map the cover image
+                '-c:v', 'mjpeg', // Encode the cover image as mjpeg
+                '-id3v2_version', '3', // Set ID3 version 3 for embedding cover
+                '-metadata:s:v', 'title="Album cover"', // Metadata for cover
+                '-metadata:s:v', 'comment="Cover (front)"' // Comment for cover
+            ])
+            .format('mp3') // Output format
+            .on('start', () => {
+                console.log('FFmpeg processing started.');
+            })
+            .on('end', () => {
+                console.log('Metadata added successfully and streamed to client!');
+                fs.unlinkSync(coverImagePath); // Clean up the cover image file
+            })
+            .on('error', (err) => {
+                console.error('Error processing audio with metadata:', err);
+                res.status(500).send('Error processing audio with metadata.');
+                fs.unlinkSync(coverImagePath); // Clean up the cover image file in case of error
+            })
+            .pipe(passThroughStream); // Pipe FFmpeg output to the PassThrough stream
 
-            // Download the cover image
-            const coverImageResponse = await axios.get(coverUrl, { responseType: 'arraybuffer' });
-            const coverImagePath = 'cover.jpg';
-            fs.writeFileSync(coverImagePath, coverImageResponse.data);
+        // Set response headers
+        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/[^a-zA-Z0-9]/g, '_')}_with_metadata.mp3"`);
 
-            // Create a PassThrough stream to pipe FFmpeg output to HTTP response
-            const passThroughStream = new stream.PassThrough();
-
-            // Use FFmpeg to add metadata to the audio file
-            ffmpeg()
-                .input(audioFilePath) // Input audio file
-                .input(coverImagePath) // Input cover image
-                .outputOptions([
-                    '-metadata', `title=${title}`, // Set title metadata
-                    '-metadata', `artist=${artist}`, // Set artist metadata
-                    '-map', '0:a', // Map audio from the first input
-                    '-map', '1', // Map cover image from the second input
-                    '-c:v', 'mjpeg', // Use mjpeg codec for cover image
-                    '-id3v2_version', '3', // Use ID3v2 version 3 for embedding image
-                    '-metadata:s:v', 'title="Album cover"', // Set metadata for the cover image
-                    '-metadata:s:v', 'comment="Cover (front)"' // Set comment for cover image
-                ])
-                .format('mp3') // Set the output format to mp3
-                .on('end', () => {
-                    console.log('Metadata added successfully and streamed to client!');
-                    // Clean up the temporary files
-                    fs.unlinkSync(audioFilePath);
-                    fs.unlinkSync(coverImagePath);
-                })
-                .on('error', (err) => {
-                    console.error('Error processing audio with metadata:', err);
-                    res.status(500).send('Error processing audio with metadata.');
-                    // Clean up in case of an error
-                    fs.unlinkSync(audioFilePath);
-                    fs.unlinkSync(coverImagePath);
-                })
-                .pipe(passThroughStream); // Pipe the output to the PassThrough stream
-
-            // Set headers for the HTTP response
-            res.setHeader('Content-Type', 'audio/mpeg');
-            res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/[^a-zA-Z0-9]/g, '_')}_with_metadata.mp3"`);
-
-            // Pipe the FFmpeg output to the HTTP response
-            passThroughStream.pipe(res);
-        });
-
-        audioFileStream.on('error', (err) => {
-            console.error('Error writing audio file:', err);
-            res.status(500).send('Error writing audio file.');
-        });
+        // Pipe the FFmpeg output to the HTTP response
+        passThroughStream.pipe(res);
 
     } catch (error) {
-        console.error('Error:', error);
-        res.status(500).send('An error occurred.');
+        console.error('Error during processing:', error);
+        res.status(500).send('An error occurred while processing the audio.');
     }
 }
 
