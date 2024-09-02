@@ -34,14 +34,17 @@ async function processAndStreamAudio(apiUrl, coverUrl, title, artist, res) {
 
             // Use FFmpeg to add metadata to the audio file
             ffmpeg()
-                .input(audioFilePath)
-                .input(coverImagePath)
+                .input(audioFilePath) // Input audio file
+                .input(coverImagePath) // Input cover image
                 .outputOptions([
-                    '-metadata', `title=${title}`,
-                    '-metadata', `artist=${artist}`,
-                    '-map', '0:a',
-                    '-map', '1:v',
-                    '-c:v', 'mjpeg',
+                    '-metadata', `title=${title}`, // Set title metadata
+                    '-metadata', `artist=${artist}`, // Set artist metadata
+                    '-map', '0:a', // Map audio from the first input
+                    '-map', '1', // Map cover image from the second input
+                    '-c:v', 'mjpeg', // Use mjpeg codec for cover image
+                    '-id3v2_version', '3', // Use ID3v2 version 3 for embedding image
+                    '-metadata:s:v', 'title="Album cover"', // Set metadata for the cover image
+                    '-metadata:s:v', 'comment="Cover (front)"' // Set comment for cover image
                 ])
                 .format('mp3') // Set the output format to mp3
                 .on('end', () => {
@@ -57,7 +60,7 @@ async function processAndStreamAudio(apiUrl, coverUrl, title, artist, res) {
                     fs.unlinkSync(audioFilePath);
                     fs.unlinkSync(coverImagePath);
                 })
-                .pipe(passThroughStream);
+                .pipe(passThroughStream); // Pipe the output to the PassThrough stream
 
             // Set headers for the HTTP response
             res.setHeader('Content-Type', 'audio/mpeg');
