@@ -101,7 +101,7 @@ app.get('/download', async (req, res) => {
         const coverUrl = thumbnail;
 
         // Construct the API URL for audio stream
-        const apiUrl = `https://vivekfy.vercel.app/vivekfy?url=${encodeURIComponent(youtubeUrl)}`;
+        const apiUrl = `https://vivekfy.vercel.app/vivekfy4?url=${encodeURIComponent(youtubeUrl)}`;
 
         await downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res);
     } catch (error) {
