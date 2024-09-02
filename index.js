@@ -2,71 +2,84 @@ const fs = require('fs');
 const ffmpeg = require('fluent-ffmpeg');
 const axios = require('axios');
 const express = require('express');
-const stream = require('stream');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Function to process audio with metadata and stream it back
-async function processAndStreamAudio(apiUrl, coverUrl, title, artist, res) {
+// Function to download audio and add metadata
+async function downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res) {
     try {
-        // Fetch audio stream from the API endpoint
-        const audioResponse = await axios.get(apiUrl, { responseType: 'stream' });
-
-        // Download the cover image
-        const coverImageResponse = await axios.get(coverUrl, { responseType: 'arraybuffer' });
+        const audioFilePath = 'audio.mp3';
         const coverImagePath = 'cover.jpg';
-        fs.writeFileSync(coverImagePath, coverImageResponse.data);
+        const outputFileName = `${title.replace(/[^a-zA-Z0-9]/g, '_')}_with_metadata.mp3`;
 
-        // Check if the audio stream is correctly fetched
-        if (!audioResponse.data) {
-            console.error('Audio stream is empty or not available.');
-            res.status(500).send('Error: Audio stream is not available.');
-            return;
-        }
+        // Fetch audio stream from your API endpoint and save it to a temporary file
+        const audioResponse = await axios.get(apiUrl, { responseType: 'stream' });
+        const audioFileStream = fs.createWriteStream(audioFilePath);
 
-        // Set up a PassThrough stream for piping the FFmpeg output
-        const passThroughStream = new stream.PassThrough();
+        audioResponse.data.pipe(audioFileStream);
 
-        // Use FFmpeg to process the audio and add metadata
-        ffmpeg(audioResponse.data) // Use the audio stream directly
-            .input(coverImagePath) // Use the cover image file
-            .outputOptions([
-                '-metadata', `title=${title}`, // Set the title
-                '-metadata', `artist=${artist}`, // Set the artist
-                '-map', '0:a', // Map the audio stream
-                '-map', '1', // Map the cover image
-                '-c:v', 'mjpeg', // Encode the cover image as mjpeg
-                '-id3v2_version', '3', // Set ID3 version 3 for embedding cover
-                '-metadata:s:v', 'title="Album cover"', // Metadata for cover
-                '-metadata:s:v', 'comment="Cover (front)"' // Comment for cover
-            ])
-            .format('mp3') // Output format
-            .on('start', () => {
-                console.log('FFmpeg processing started.');
-            })
-            .on('end', () => {
-                console.log('Metadata added successfully and streamed to client!');
-                fs.unlinkSync(coverImagePath); // Clean up the cover image file
-            })
-            .on('error', (err) => {
-                console.error('Error processing audio with metadata:', err);
-                res.status(500).send('Error processing audio with metadata.');
-                fs.unlinkSync(coverImagePath); // Clean up the cover image file in case of error
-            })
-            .pipe(passThroughStream); // Pipe FFmpeg output to the PassThrough stream
+        // Listen for the finish event to ensure the audio file is fully downloaded
+        audioFileStream.on('finish', async () => {
+            console.log('Audio downloaded successfully!');
 
-        // Set response headers
-        res.setHeader('Content-Type', 'audio/mpeg');
-        res.setHeader('Content-Disposition', `attachment; filename="${title.replace(/[^a-zA-Z0-9]/g, '_')}_with_metadata.mp3"`);
+            try {
+                // Download the cover image
+                const coverImageResponse = await axios.get(coverUrl, { responseType: 'arraybuffer' });
+                fs.writeFileSync(coverImagePath, coverImageResponse.data);
 
-        // Pipe the FFmpeg output to the HTTP response
-        passThroughStream.pipe(res);
+                // Use FFmpeg to add metadata to the audio file
+                ffmpeg()
+                    .input(audioFilePath)
+                    .input(coverImagePath)
+                    .outputOptions([
+                        '-metadata', `title=${title}`,
+                        '-metadata', `artist=${artist}`,
+                        '-map', '0:a',
+                        '-map', '1:v',
+                        '-c:v', 'mjpeg',
+                    ])
+                    .save(outputFileName)
+                    .on('end', () => {
+                        console.log('Metadata added successfully!');
+
+                        // Send the modified file to the client
+                        res.download(outputFileName, () => {
+                            // Clean up files after download
+                            cleanUpFiles([audioFilePath, outputFileName, coverImagePath]);
+                        });
+                    })
+                    .on('error', (err) => {
+                        console.error('Error adding metadata: ', err);
+                        res.status(500).send('Error adding metadata.');
+                        cleanUpFiles([audioFilePath, outputFileName, coverImagePath]);
+                    });
+            } catch (coverError) {
+                console.error('Error downloading cover image:', coverError);
+                res.status(500).send('Error downloading cover image.');
+                cleanUpFiles([audioFilePath]);
+            }
+        });
+
+        audioFileStream.on('error', (err) => {
+            console.error('Error writing audio file:', err);
+            res.status(500).send('Error writing audio file.');
+        });
 
     } catch (error) {
-        console.error('Error during processing:', error);
-        res.status(500).send('An error occurred while processing the audio.');
+        console.error('Error:', error);
+        res.status(500).send('An error occurred.');
     }
+}
+
+// Utility function to clean up files
+function cleanUpFiles(files) {
+    files.forEach(file => {
+        if (fs.existsSync(file)) {
+            fs.unlinkSync(file);
+        }
+    });
 }
 
 // Endpoint to handle audio download request
@@ -77,7 +90,7 @@ app.get('/download', async (req, res) => {
         return res.status(400).send('Error: YouTube URL is required as a query parameter!');
     }
 
-    // Extract the video ID from the YouTube URL
+    // Replace with your API endpoint and dynamically set parameters
     const videoId = extractVideoId(youtubeUrl);
     const metadataApiUrl = `https://vivekfy.vercel.app/yt?videoId=${videoId}`;
 
@@ -90,8 +103,7 @@ app.get('/download', async (req, res) => {
         // Construct the API URL for audio stream
         const apiUrl = `https://vivekfy.vercel.app/vivekfy?url=${encodeURIComponent(youtubeUrl)}`;
 
-        // Process and stream the audio with metadata directly to the client
-        await processAndStreamAudio(apiUrl, coverUrl, title, artist, res);
+        await downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res);
     } catch (error) {
         console.error('Error fetching metadata: ', error);
         res.status(500).send('Error fetching metadata.');
