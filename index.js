@@ -7,26 +7,31 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// YouTube Data API key
+const YOUTUBE_API_KEY = 'AIzaSyBh6s9emY3VYSbsHudlhxProRt8mtFyt2s';
+
 // Function to download audio and add metadata
 async function downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res) {
     try {
         // Fetch audio stream from your API endpoint and save it to a temporary file
         const audioResponse = await axios.get(apiUrl, { responseType: 'stream' });
-        const audioFilePath = 'audio.mp3';
+        const audioFilePath = path.join(__dirname, 'audio.mp3');
         const audioFileStream = fs.createWriteStream(audioFilePath);
 
         audioResponse.data.pipe(audioFileStream);
 
-        audioFileStream.on('finish', () => {
+        audioFileStream.on('finish', async () => {
             console.log('Audio downloaded successfully!');
 
-            // Download the cover image
-            axios.get(coverUrl, { responseType: 'arraybuffer' }).then(coverImageResponse => {
-                const coverImagePath = 'cover.jpg';
+            try {
+                // Download the cover image
+                const coverImageResponse = await axios.get(coverUrl, { responseType: 'arraybuffer' });
+                const coverImagePath = path.join(__dirname, 'cover.jpg');
                 fs.writeFileSync(coverImagePath, coverImageResponse.data);
 
                 // Set output file name
                 const outputFileName = `${title.replace(/[^a-zA-Z0-9]/g, '_')}_with_metadata.mp3`;
+                const outputFilePath = path.join(__dirname, outputFileName);
 
                 // Use FFmpeg to add metadata to the audio file
                 ffmpeg()
@@ -37,17 +42,17 @@ async function downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res) {
                         '-metadata', `artist=${artist}`,
                         '-map', '0:a',
                         '-map', '1:v',
-                        '-c:v', 'mjpeg',
+                        '-c:v', 'mjpeg'
                     ])
-                    .save(outputFileName)
+                    .save(outputFilePath)
                     .on('end', () => {
                         console.log('Metadata added successfully!');
 
                         // Send the modified file to the client
-                        res.download(outputFileName, () => {
+                        res.download(outputFilePath, () => {
                             // Clean up files after download
                             fs.unlinkSync(audioFilePath);
-                            fs.unlinkSync(outputFileName);
+                            fs.unlinkSync(outputFilePath);
                             fs.unlinkSync(coverImagePath);
                         });
                     })
@@ -55,10 +60,10 @@ async function downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res) {
                         console.error('Error adding metadata: ', err);
                         res.status(500).send('Error adding metadata.');
                     });
-            }).catch(err => {
+            } catch (err) {
                 console.error('Error downloading cover image:', err);
                 res.status(500).send('Error downloading cover image.');
-            });
+            }
         });
 
         audioFileStream.on('error', (err) => {
@@ -80,15 +85,28 @@ app.get('/download', async (req, res) => {
         return res.status(400).send('Error: YouTube URL is required as a query parameter!');
     }
 
-    // Replace with your API endpoint and dynamically set parameters
+    // Extract video ID from the provided URL
     const videoId = extractVideoId(youtubeUrl);
-    const metadataApiUrl = `https://vivekfy.vercel.app/yt?videoId=${videoId}`;
+
+    if (!videoId) {
+        return res.status(400).send('Invalid YouTube URL!');
+    }
+
+    // Fetch metadata using YouTube Data API
+    const youtubeApiUrl = `https://www.googleapis.com/youtube/v3/videos?id=${videoId}&key=${YOUTUBE_API_KEY}&part=snippet`;
 
     try {
-        // Fetch metadata from the JSON API
-        const metadataResponse = await axios.get(metadataApiUrl);
-        const { title, artist, thumbnail } = metadataResponse.data;
-        const coverUrl = thumbnail;
+        // Fetch metadata from the YouTube API
+        const metadataResponse = await axios.get(youtubeApiUrl);
+        const videoDetails = metadataResponse.data.items[0];
+
+        if (!videoDetails) {
+            return res.status(404).send('Video not found.');
+        }
+
+        const title = videoDetails.snippet.title;
+        const artist = videoDetails.snippet.channelTitle; // Using the channel title as artist
+        const coverUrl = videoDetails.snippet.thumbnails.high.url; // High-quality thumbnail
 
         // Construct the API URL for audio stream
         const apiUrl = `https://vivekfy.vercel.app/vivekfy?url=${encodeURIComponent(youtubeUrl)}`;
