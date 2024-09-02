@@ -10,9 +10,9 @@ const PORT = process.env.PORT || 3000;
 // Function to download audio and add metadata
 async function downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res) {
     try {
-        const audioFilePath = 'audio.mp3';
+        const audioFilePath = 'audio.webm';
         const coverImagePath = 'cover.jpg';
-        const outputFileName = `${title.replace(/[^a-zA-Z0-9]/g, '_')}_with_metadata.mp3`;
+        const outputFileName = `${title.replace(/[^a-zA-Z0-9]/g, '_')}_with_metadata.webm`;
 
         // Fetch audio stream from your API endpoint and save it to a temporary file
         const audioResponse = await axios.get(apiUrl, { responseType: 'stream' });
@@ -39,6 +39,7 @@ async function downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res) {
                         '-map', '0:a',
                         '-map', '1:v',
                         '-c:v', 'mjpeg',
+                        '-c:a', 'libopus' // Ensure the audio codec is set correctly for WEBM
                     ])
                     .save(outputFileName)
                     .on('end', () => {
@@ -100,8 +101,8 @@ app.get('/download', async (req, res) => {
         const { title, artist, thumbnail } = metadataResponse.data;
         const coverUrl = thumbnail;
 
-        // Construct the API URL for audio stream
-        const apiUrl = `https://vivekfy.vercel.app/vivekfy?url=${encodeURIComponent(youtubeUrl)}`;
+        // Construct the API URL for WEBM audio stream
+        const apiUrl = `https://vivekfy.vercel.app/vivekfy4?url=${encodeURIComponent(youtubeUrl)}`;
 
         await downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res);
     } catch (error) {
@@ -121,4 +122,3 @@ function extractVideoId(url) {
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
-
