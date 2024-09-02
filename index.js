@@ -14,7 +14,7 @@ async function downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res) {
         const coverImagePath = 'cover.jpg';
         const outputFileName = `${title.replace(/[^a-zA-Z0-9]/g, '_')}_with_metadata.mp3`;
 
-        // Fetch audio stream from your API endpoint and save it to a temporary file
+        // Fetch audio stream from the new API endpoint and save it to a temporary file
         const audioResponse = await axios.get(apiUrl, { responseType: 'stream' });
         const audioFileStream = fs.createWriteStream(audioFilePath);
 
@@ -100,8 +100,8 @@ app.get('/download', async (req, res) => {
         const { title, artist, thumbnail } = metadataResponse.data;
         const coverUrl = thumbnail;
 
-        // Construct the API URL for audio stream
-        const apiUrl = `https://vivekfy.vercel.app/vivekfy?url=${encodeURIComponent(youtubeUrl)}`;
+        // Construct the new API URL for audio stream
+        const apiUrl = `https://dlvivek.free.nf/249?id=${videoId}`;
 
         await downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res);
     } catch (error) {
