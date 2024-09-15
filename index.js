@@ -12,15 +12,15 @@ async function downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res) {
     try {
         const audioFilePath = 'audio.mp3';
         const coverImagePath = 'cover.jpg';
-        const outputFileName = `${title.replace(/[^a-zA-Z0-9]/g, '_')}_with_metadata.mp3`;
+        const outputFileName = `${title}.mp3`; // No modification to the title
 
-        // Fetch audio from the new direct download API endpoint and save it to a temporary file
+        // Fetch audio from the direct download API endpoint and save it to a temporary file
         const audioResponse = await axios.get(apiUrl, { responseType: 'stream' });
         const audioFileStream = fs.createWriteStream(audioFilePath);
 
+        // Pipe the audio stream directly to the file
         audioResponse.data.pipe(audioFileStream);
 
-        // Listen for the finish event to ensure the audio file is fully downloaded
         audioFileStream.on('finish', async () => {
             console.log('Audio downloaded successfully!');
 
@@ -62,6 +62,7 @@ async function downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res) {
             }
         });
 
+        // Handle errors during audio download
         audioFileStream.on('error', (err) => {
             console.error('Error writing audio file:', err);
             res.status(500).send('Error writing audio file.');
@@ -90,7 +91,6 @@ app.get('/download', async (req, res) => {
         return res.status(400).send('Error: YouTube URL is required as a query parameter!');
     }
 
-    // Replace with your API endpoint and dynamically set parameters
     const videoId = extractVideoId(youtubeUrl);
     const metadataApiUrl = `https://vivekfy.vercel.app/yt?videoId=${videoId}`;
 
