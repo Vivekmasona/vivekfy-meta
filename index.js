@@ -7,7 +7,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Function to download audio and add metadata
+// Function to download audio and add metadata with progress
 async function downloadAudioWithMetadata(apiUrl, coverUrl, title, res, fullBackendUrl) {
     try {
         const audioFilePath = 'audio.mp3';
@@ -19,18 +19,29 @@ async function downloadAudioWithMetadata(apiUrl, coverUrl, title, res, fullBacke
         const audioFileStream = fs.createWriteStream(audioFilePath);
 
         // Pipe the audio stream directly to the file
+        let downloadedBytes = 0;
+        const totalBytes = parseInt(audioResponse.headers['content-length'], 10);
+
+        // Monitor download progress
+        audioResponse.data.on('data', (chunk) => {
+            downloadedBytes += chunk.length;
+            const downloadPercentage = ((downloadedBytes / totalBytes) * 100).toFixed(2);
+            res.write(`Download progress: ${downloadPercentage}%\n`);
+        });
+
         audioResponse.data.pipe(audioFileStream);
 
         audioFileStream.on('finish', async () => {
             console.log('Audio downloaded successfully!');
+            res.write('Audio download complete. Starting metadata addition...\n');
 
             try {
                 // Download the cover image
                 const coverImageResponse = await axios.get(coverUrl, { responseType: 'arraybuffer' });
                 fs.writeFileSync(coverImagePath, coverImageResponse.data);
 
-                // Use FFmpeg to add metadata to the audio file
-                ffmpeg()
+                // Use FFmpeg to add metadata to the audio file with progress
+                const command = ffmpeg()
                     .input(audioFilePath)
                     .input(coverImagePath)
                     .outputOptions([
@@ -40,24 +51,37 @@ async function downloadAudioWithMetadata(apiUrl, coverUrl, title, res, fullBacke
                         '-map', '1:v',
                         '-c:v', 'mjpeg',
                     ])
-                    .save(outputFileName)
-                    .on('end', () => {
-                        console.log('Metadata added successfully!');
+                    .save(outputFileName);
 
-                        // Generate the full URL for the download
-                        const downloadUrl = `${fullBackendUrl}/download/${encodeURIComponent(outputFileName)}`;
+                // Listen for FFmpeg progress events
+                command.on('progress', (progress) => {
+                    const progressPercentage = (progress.percent || 0).toFixed(2);
+                    console.log(`Metadata progress: ${progressPercentage}%`);
+                    res.write(`Metadata addition progress: ${progressPercentage}%\n`);
+                });
 
-                        // Send the download URL back to the client
-                        res.json({ message: 'Download ready', downloadUrl });
+                // When FFmpeg finishes adding metadata
+                command.on('end', () => {
+                    console.log('Metadata added successfully!');
 
-                        // Clean up files after sending the download URL
-                        cleanUpFiles([audioFilePath, coverImagePath]);
-                    })
-                    .on('error', (err) => {
-                        console.error('Error adding metadata: ', err);
-                        res.status(500).send('Error adding metadata.');
-                        cleanUpFiles([audioFilePath, outputFileName, coverImagePath]);
-                    });
+                    // Generate the full URL for the download
+                    const downloadUrl = `${fullBackendUrl}/download/${encodeURIComponent(outputFileName)}`;
+
+                    // Send the download URL back to the client
+                    res.write(`Download ready at: ${downloadUrl}\n`);
+                    res.end();
+
+                    // Clean up files after sending the download URL
+                    cleanUpFiles([audioFilePath, coverImagePath]);
+                });
+
+                // Handle errors during FFmpeg processing
+                command.on('error', (err) => {
+                    console.error('Error adding metadata: ', err);
+                    res.status(500).send('Error adding metadata.');
+                    cleanUpFiles([audioFilePath, outputFileName, coverImagePath]);
+                });
+
             } catch (coverError) {
                 console.error('Error downloading cover image:', coverError);
                 res.status(500).send('Error downloading cover image.');
@@ -110,6 +134,7 @@ app.get('/download', async (req, res) => {
     const fullBackendUrl = `${req.protocol}://${req.get('host')}`;
 
     // Call the function to download the audio and attach metadata
+    res.write('Starting the download...\n');
     await downloadAudioWithMetadata(apiUrl, coverUrl, title, res, fullBackendUrl);
 });
 
@@ -143,5 +168,3 @@ function extractVideoId(url) {
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
-
-
