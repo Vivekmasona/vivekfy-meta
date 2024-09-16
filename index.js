@@ -19,21 +19,10 @@ async function downloadAudioWithMetadata(apiUrl, coverUrl, title, res, fullBacke
         const audioFileStream = fs.createWriteStream(audioFilePath);
 
         // Pipe the audio stream directly to the file
-        let downloadedBytes = 0;
-        const totalBytes = parseInt(audioResponse.headers['content-length'], 10);
-
-        // Monitor download progress
-        audioResponse.data.on('data', (chunk) => {
-            downloadedBytes += chunk.length;
-            const downloadPercentage = ((downloadedBytes / totalBytes) * 100).toFixed(2);
-            res.write(`Download progress: ${downloadPercentage}%\n`);
-        });
-
         audioResponse.data.pipe(audioFileStream);
 
         audioFileStream.on('finish', async () => {
             console.log('Audio downloaded successfully!');
-            res.write('Audio download complete. Starting metadata addition...\n');
 
             try {
                 // Download the cover image
@@ -56,8 +45,9 @@ async function downloadAudioWithMetadata(apiUrl, coverUrl, title, res, fullBacke
                 // Listen for FFmpeg progress events
                 command.on('progress', (progress) => {
                     const progressPercentage = (progress.percent || 0).toFixed(2);
-                    console.log(`Metadata progress: ${progressPercentage}%`);
-                    res.write(`Metadata addition progress: ${progressPercentage}%\n`);
+                    console.log(`Progress: ${progressPercentage}%`);
+                    // You can optionally send this progress percentage back to the client in real-time
+                    res.write(`Progress: ${progressPercentage}%\n`);
                 });
 
                 // When FFmpeg finishes adding metadata
