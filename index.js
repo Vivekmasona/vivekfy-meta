@@ -8,11 +8,11 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Function to download audio and add metadata
-async function downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res) {
+async function downloadAudioWithMetadata(apiUrl, coverUrl, title, res, fullBackendUrl) {
     try {
         const audioFilePath = 'audio.mp3';
         const coverImagePath = 'cover.jpg';
-        const outputFileName = `${title}.mp3`; // No modification to the title
+        const outputFileName = `${title}.mp3`;
 
         // Fetch audio from the direct download API endpoint and save it to a temporary file
         const audioResponse = await axios.get(apiUrl, { responseType: 'stream' });
@@ -35,7 +35,7 @@ async function downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res) {
                     .input(coverImagePath)
                     .outputOptions([
                         '-metadata', `title=${title}`,
-                        '-metadata', `artist=${artist}`,
+                        '-metadata', 'artist=VivekMasona',
                         '-map', '0:a',
                         '-map', '1:v',
                         '-c:v', 'mjpeg',
@@ -44,11 +44,14 @@ async function downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res) {
                     .on('end', () => {
                         console.log('Metadata added successfully!');
 
-                        // Send the modified file to the client
-                        res.download(outputFileName, () => {
-                            // Clean up files after download
-                            cleanUpFiles([audioFilePath, outputFileName, coverImagePath]);
-                        });
+                        // Generate the full URL for the download
+                        const downloadUrl = `${fullBackendUrl}/download/${encodeURIComponent(outputFileName)}`;
+
+                        // Send the download URL back to the client
+                        res.json({ message: 'Download ready', downloadUrl });
+
+                        // Clean up files after sending the download URL
+                        cleanUpFiles([audioFilePath, coverImagePath]);
                     })
                     .on('error', (err) => {
                         console.error('Error adding metadata: ', err);
@@ -86,27 +89,46 @@ function cleanUpFiles(files) {
 // Endpoint to handle audio download request
 app.get('/download', async (req, res) => {
     const youtubeUrl = req.query.url;
+    const title = req.query.title || 'Unknown Title';  // Title passed via query
 
     if (!youtubeUrl) {
         return res.status(400).send('Error: YouTube URL is required as a query parameter!');
     }
 
     const videoId = extractVideoId(youtubeUrl);
-    const metadataApiUrl = `https://vivekfy.vercel.app/yt?videoId=${videoId}`;
+    if (!videoId) {
+        return res.status(400).send('Error: Invalid YouTube URL!');
+    }
 
-    try {
-        // Fetch metadata from the JSON API
-        const metadataResponse = await axios.get(metadataApiUrl);
-        const { title, artist, thumbnail } = metadataResponse.data;
-        const coverUrl = thumbnail;
+    // Generate cover image URL using the video ID
+    const coverUrl = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
 
-        // Use the new API for direct audio download
-        const apiUrl = `https://vivekfy.vercel.app/stream?url=${encodeURIComponent(youtubeUrl)}`;
+    // Use the new API for direct audio download
+    const apiUrl = `https://vivekfy.vercel.app/stream?url=${encodeURIComponent(youtubeUrl)}`;
 
-        await downloadAudioWithMetadata(apiUrl, coverUrl, title, artist, res);
-    } catch (error) {
-        console.error('Error fetching metadata: ', error);
-        res.status(500).send('Error fetching metadata.');
+    // Get the full URL for this server
+    const fullBackendUrl = `${req.protocol}://${req.get('host')}`;
+
+    // Call the function to download the audio and attach metadata
+    await downloadAudioWithMetadata(apiUrl, coverUrl, title, res, fullBackendUrl);
+});
+
+// Serve the generated mp3 files for download
+app.get('/download/:file', (req, res) => {
+    const fileName = req.params.file;
+    const filePath = path.join(__dirname, fileName);
+
+    if (fs.existsSync(filePath)) {
+        res.download(filePath, (err) => {
+            if (err) {
+                console.error('Error sending the file:', err);
+            }
+
+            // Clean up the file after sending
+            fs.unlinkSync(filePath);
+        });
+    } else {
+        res.status(404).send('File not found.');
     }
 });
 
