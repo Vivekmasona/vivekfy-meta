@@ -9,19 +9,6 @@ const PORT = process.env.PORT || 3000;
 // Function to process audio and add metadata
 async function processAudioWithMetadata(apiUrl, coverUrl, title, artist) {
     try {
-        // Fetch audio stream from your API endpoint
-        const audioResponse = await axios.get(apiUrl, { responseType: 'stream' });
-        const audioFilePath = 'temp_audio.mp3';
-        
-        // Save audio blob to a temporary file
-        await new Promise((resolve, reject) => {
-            const writer = fs.createWriteStream(audioFilePath);
-            audioResponse.data.pipe(writer);
-            writer.on('finish', resolve);
-            writer.on('error', reject);
-        });
-
-        // Download the cover image
         const coverImageResponse = await axios.get(coverUrl, { responseType: 'arraybuffer' });
         const coverImagePath = 'cover.jpg';
         fs.writeFileSync(coverImagePath, coverImageResponse.data);
@@ -29,10 +16,11 @@ async function processAudioWithMetadata(apiUrl, coverUrl, title, artist) {
         // Set final output file name
         const finalOutputName = `${title.replace(/[^a-zA-Z0-9]/g, '_')}_with_metadata.mp3`;
 
-        // Use FFmpeg to add metadata
+        // Use FFmpeg to process the audio and add metadata directly from the stream
         await new Promise((resolve, reject) => {
-            ffmpeg(audioFilePath)
-                .audioBitrate(128)
+            ffmpeg()
+                .input(apiUrl)
+                .audioBitrate(48) // Set audio bitrate to 48kbps
                 .input(coverImagePath)
                 .outputOptions([
                     '-metadata', `title=${title}`,
@@ -44,7 +32,6 @@ async function processAudioWithMetadata(apiUrl, coverUrl, title, artist) {
                 .save(finalOutputName)
                 .on('end', () => {
                     // Clean up temporary files
-                    fs.unlinkSync(audioFilePath);
                     fs.unlinkSync(coverImagePath);
                     resolve(finalOutputName);
                 })
