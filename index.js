@@ -8,51 +8,34 @@ const { PassThrough } = require('stream');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Function to stream audio data
-function streamAudio(apiUrl, res) {
-    const audioStream = ffmpeg()
+// Function to stream audio with metadata
+function streamAudioWithMetadata(apiUrl, coverUrl, title, artist, res) {
+    const coverImageStream = axios.get(coverUrl, { responseType: 'stream' }).then(response => response.data);
+    
+    // Create a PassThrough stream to handle audio streaming
+    const passThroughStream = new PassThrough();
+
+    // Pipe the audio stream to the PassThrough stream
+    ffmpeg()
         .input(apiUrl)
         .audioBitrate(48) // Set audio bitrate to 48kbps
+        .input(coverImageStream)
+        .outputOptions([
+            '-metadata', `title=${title}`,
+            '-metadata', `artist=${artist}`,
+            '-map', '0:a',
+            '-map', '1:v',
+            '-c:v', 'mjpeg'
+        ])
         .format('mp3')
-        .pipe(new PassThrough(), { end: true });
+        .pipe(passThroughStream, { end: true });
 
-    audioStream.pipe(res);
-}
+    // Set headers for file download
+    res.setHeader('Content-Disposition', 'attachment; filename="audio_with_metadata.mp3"');
+    res.setHeader('Content-Type', 'audio/mpeg');
 
-// Function to process and add metadata asynchronously
-async function processMetadata(apiUrl, coverUrl, title, artist) {
-    try {
-        const coverImageResponse = await axios.get(coverUrl, { responseType: 'arraybuffer' });
-        const coverImagePath = 'cover.jpg';
-        fs.writeFileSync(coverImagePath, coverImageResponse.data);
-
-        // Set final output file name
-        const finalOutputName = `${title.replace(/[^a-zA-Z0-9]/g, '_')}_with_metadata.mp3`;
-
-        // Use FFmpeg to process the audio and add metadata directly from the stream
-        ffmpeg()
-            .input(apiUrl)
-            .audioBitrate(48) // Set audio bitrate to 48kbps
-            .input(coverImagePath)
-            .outputOptions([
-                '-metadata', `title=${title}`,
-                '-metadata', `artist=${artist}`,
-                '-map', '0:a',
-                '-map', '1:v',
-                '-c:v', 'mjpeg'
-            ])
-            .save(finalOutputName)
-            .on('end', () => {
-                // Clean up temporary files
-                fs.unlinkSync(coverImagePath);
-                console.log(`Metadata processed for: ${finalOutputName}`);
-            })
-            .on('error', (err) => {
-                console.error('Error adding metadata: ', err);
-            });
-    } catch (error) {
-        console.error('Error:', error);
-    }
+    // Pipe the PassThrough stream to the response
+    passThroughStream.pipe(res);
 }
 
 // Endpoint to handle audio processing and metadata addition
@@ -75,17 +58,10 @@ app.get('/download', async (req, res) => {
         // Construct the API URL for audio stream
         const apiUrl = `https://vivekfy.vercel.app/vivekfy?url=${encodeURIComponent(youtubeUrl)}`;
 
-        // Start streaming the audio file to the client
-        res.setHeader('Content-Disposition', 'attachment; filename="audio.mp3"');
-        res.setHeader('Content-Type', 'audio/mpeg');
-
-        // Stream the audio
-        streamAudio(apiUrl, res);
-
-        // Process metadata in the background
-        processMetadata(apiUrl, coverUrl, title, artist);
+        // Stream audio with metadata directly to the client
+        streamAudioWithMetadata(apiUrl, coverUrl, title, artist, res);
     } catch (error) {
-        console.error('Error fetching metadata: ', error);
+        console.error('Error fetching metadata:', error);
         res.status(500).send('Error fetching metadata.');
     }
 });
