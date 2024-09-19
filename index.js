@@ -71,10 +71,18 @@ app.get('/download', async (req, res) => {
         // Process audio and add metadata
         const filePath = await processAudioWithMetadata(apiUrl, coverUrl, title, artist);
 
-        // Return the download URL in JSON response
-        res.json({ downloadUrl: `${req.protocol}://${req.get('host')}/files/${path.basename(filePath)}` });
+        // Serve the file for download
+        res.download(filePath, (err) => {
+            if (err) {
+                console.error('Error sending file:', err);
+                res.status(500).send('Error sending file.');
+            } else {
+                // Clean up the file after sending
+                fs.unlinkSync(filePath);
+            }
+        });
     } catch (error) {
-        console.error('Error fetching metadata: ', error);
+        console.error('Error fetching metadata:', error);
         res.status(500).send('Error fetching metadata.');
     }
 });
