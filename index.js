@@ -70,7 +70,7 @@ app.get('/download', async (req, res) => {
     }
 
     const videoId = extractVideoId(youtubeUrl);
-    const metadataApiUrl = `https://vivekfy.vercel.app/yt?videoId=${videoId}`;
+    const metadataApiUrl = `https://vivekfy.vercel.app/vid?id=${videoId}`;
 
     try {
         // Fetch metadata from the JSON API
