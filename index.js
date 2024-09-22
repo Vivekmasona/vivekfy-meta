@@ -20,7 +20,6 @@ async function processAudioWithMetadata(apiUrl, coverUrl, title, artist) {
         await new Promise((resolve, reject) => {
             ffmpeg()
                 .input(apiUrl)
-                .audioBitrate(48) // Set audio bitrate to 48kbps
                 .input(coverImagePath)
                 .outputOptions([
                     '-metadata', `title=${title}`,
