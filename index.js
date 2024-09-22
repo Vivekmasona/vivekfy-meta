@@ -47,7 +47,7 @@ async function processAudioWithMetadata(apiUrl, coverUrl, title, artist) {
     }
 }
 
-// Endpoint to handle audio processing and direct file download
+// Endpoint to handle audio processing and metadata addition
 app.get('/download', async (req, res) => {
     const youtubeUrl = req.query.url;
 
@@ -70,16 +70,8 @@ app.get('/download', async (req, res) => {
         // Process audio and add metadata
         const filePath = await processAudioWithMetadata(apiUrl, coverUrl, title, artist);
 
-        // Directly download the file
-        res.download(filePath, (err) => {
-            if (err) {
-                console.error('Error downloading the file:', err);
-                res.status(500).send('Error downloading the file.');
-            }
-
-            // Clean up the processed file after sending it
-            fs.unlinkSync(filePath);
-        });
+        // Return the download URL in JSON response
+        res.json({ downloadUrl: `${req.protocol}://${req.get('host')}/files/${path.basename(filePath)}` });
     } catch (error) {
         console.error('Error fetching metadata: ', error);
         res.status(500).send('Error fetching metadata.');
@@ -92,6 +84,9 @@ function extractVideoId(url) {
     const match = url.match(regex);
     return match ? match[1] : null;
 }
+
+// Serve files from the /files directory
+app.use('/files', express.static(__dirname));
 
 // Start the server
 app.listen(PORT, () => {
